@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Podcast Explorer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%235e77fb'/></svg>">
+</head>
+<body>
+
+  <!-- ---------------------------------------------------------- masthead -->
+  <header class="masthead">
+    <div class="wrap">
+      <div class="brandmark" onclick="App.home()">
+        <span class="brand-dot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/>
+          </svg>
+        </span>
+        <span class="brand-name">Podcast Explorer</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <!-- ========================================================= BROWSE VIEW -->
+    <section id="browse-view" class="view active">
+
+      <div class="hero">
+        <h1>Everything about any <em>Apple podcast</em>.</h1>
+        <p class="lede">Paste one or many Apple Podcasts show or episode URLs. Get metadata, the RSS feed,
+          a full episode table with inline playback, downloads, and custom-length audio clips.</p>
+      </div>
+
+      <div class="panel input-card">
+        <div class="input-inner">
+          <div class="seg" role="tablist">
+            <button class="active" data-tab="paste" onclick="App.tab('paste')">Paste URLs</button>
+            <button data-tab="file" onclick="App.tab('file')">Upload CSV / Excel</button>
+          </div>
+
+          <div class="tabpane active" data-pane="paste">
+            <textarea id="urls" spellcheck="false" placeholder="https://podcasts.apple.com/in/podcast/the-joe-rogan-experience/id360084272&#10;https://podcasts.apple.com/us/podcast/this-past-weekend-w-theo-von/id1190981360&#10;&#10;One per line, or comma-separated. Show or episode URLs both work."></textarea>
+          </div>
+
+          <div class="tabpane" data-pane="file">
+            <div class="dropzone" id="dropzone">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+              </svg>
+              <div><strong>Click to choose</strong> or drop a .csv / .xlsx file</div>
+              <div class="file-chosen" id="fileChosen" style="display:none"></div>
+              <input type="file" id="fileInput" accept=".csv,.xlsx,.xlsm" hidden>
+            </div>
+          </div>
+
+          <div class="input-actions">
+            <button class="btn btn-primary" id="fetchBtn" onclick="App.process()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <span>Fetch podcasts</span>
+            </button>
+            <span class="helper" id="inputHelper">Supports show &amp; episode URLs, bulk paste, CSV, and Excel.</span>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost btn-sm" onclick="App.loadSample()">Try an example</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="processNotice"></div>
+
+      <div id="resultsWrap" style="display:none">
+        <div class="section-head">
+          <h2>Podcasts</h2>
+          <span class="count" id="resultCount"></span>
+        </div>
+        <div class="bulk-toolbar" id="podToolbar" style="display:none"></div>
+        <div class="card-grid" id="cardGrid"></div>
+      </div>
+    </section>
+
+    <!-- ======================================================= EPISODES VIEW -->
+    <section id="episodes-view" class="view">
+      <div class="backbar">
+        <button class="back-link" onclick="App.backToBrowse()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          All podcasts
+        </button>
+      </div>
+      <div id="showHeader"></div>
+      <div id="episodesArea"></div>
+    </section>
+
+  </main>
+
+  <!-- =============================================================== CLIP MODAL -->
+  <div class="modal-backdrop" id="clipModal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="clipTitle">
+      <div class="modal-head">
+        <div>
+          <div class="m-title" id="clipTitle">Download a clip</div>
+          <div class="m-sub" id="clipEpName"></div>
+        </div>
+        <button class="modal-close" onclick="App.closeClip()" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="clip-section-label">Quick presets</div>
+        <div class="preset-grid" id="presetGrid"></div>
+
+        <div class="clip-section-label">Custom window</div>
+        <div class="timeline">
+          <div class="tl-track">
+            <div class="tl-fill" id="tlFill" style="left:0;width:12%"></div>
+            <div class="tl-ticks"><span>0:00</span><span id="tlEnd">--:--</span></div>
+          </div>
+          <div class="tl-caption" id="tlCaption">Select a preset or enter a start and end time.</div>
+        </div>
+        <div class="range-row">
+          <div class="field">
+            <label for="clipStart">Start</label>
+            <input id="clipStart" placeholder="00:00" oninput="App.onRangeInput()">
+            <div class="hint">mm:ss or hh:mm:ss</div>
+          </div>
+          <div class="field">
+            <label for="clipEnd">End</label>
+            <input id="clipEnd" placeholder="05:00" oninput="App.onRangeInput()">
+            <div class="hint">leave blank to use a preset</div>
+          </div>
+        </div>
+
+        <div class="clip-error" id="clipError"></div>
+      </div>
+      <div class="modal-foot">
+        <span class="out-note">Output: MP3 &middot; 128 kbps</span>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" onclick="App.closeClip()">Cancel</button>
+        <button class="btn btn-primary" id="clipDownloadBtn" onclick="App.downloadClip()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          <span>Download clip</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================== PROGRESS MODAL -->
+  <div class="modal-backdrop" id="progressModal">
+    <div class="modal modal-progress" role="dialog" aria-modal="true" aria-labelledby="progTitle">
+      <div class="modal-head">
+        <div>
+          <div class="m-title" id="progTitle">Preparing your download</div>
+          <div class="m-sub" id="progPhase">Getting things ready&hellip;</div>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="prog-wrap">
+          <div class="prog-bar"><div class="prog-fill" id="progFill"></div></div>
+          <div class="prog-stats">
+            <span id="progPct">0%</span>
+            <span id="progCount"></span>
+          </div>
+        </div>
+        <div class="prog-current" id="progCurrent"></div>
+        <div class="prog-note" id="progNote"></div>
+      </div>
+      <div class="modal-foot">
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" id="progCancelBtn" onclick="App.cancelBulk()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-host" id="toastHost"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -233,8 +233,8 @@ def _cleanup(path):
 
 
 def safe_filename(name, fallback="clip", ext="mp3"):
-    """Turn an episode title into a safe download filename."""
-    name = re.sub(r"[^\w\s.-]", "", str(name or "")).strip()
-    name = re.sub(r"\s+", "_", name)
-    name = name[:80].strip("_") or fallback
+    """Turn an episode title into a safe download filename, keeping spaces."""
+    name = re.sub(r"[^\w\s.-]", "", str(name or ""))   # drop illegal chars
+    name = re.sub(r"\s+", " ", name).strip()            # collapse whitespace, keep spaces
+    name = name[:120].strip(" .-_") or fallback
     return f"{name}.{ext}"

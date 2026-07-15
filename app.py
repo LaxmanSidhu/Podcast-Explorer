@@ -13,7 +13,7 @@ Then open http://127.0.0.1:5000
 
 import os
 import concurrent.futures
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import requests
 from flask import (
@@ -62,6 +62,19 @@ def _is_http_url(url):
         return parsed.scheme in ("http", "https") and bool(parsed.netloc)
     except ValueError:
         return False
+
+
+def _content_disposition(filename):
+    """
+    Build a Content-Disposition header that preserves spaces and non-ASCII
+    characters. Modern browsers use the RFC 5987 filename* (UTF-8) value; the
+    plain quoted filename is an ASCII fallback for very old clients.
+    """
+    ascii_name = filename.encode("ascii", "ignore").decode("ascii").strip()
+    if not ascii_name:
+        ascii_name = "download." + filename.rsplit(".", 1)[-1] if "." in filename else "download"
+    utf8_name = quote(filename)
+    return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{utf8_name}'
 
 
 def _process_one(parsed):
@@ -248,7 +261,7 @@ def api_download():
             upstream.close()
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": _content_disposition(filename),
         "Content-Type": content_type,
     }
     if upstream.headers.get("Content-Length"):

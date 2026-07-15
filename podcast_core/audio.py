@@ -233,8 +233,17 @@ def _cleanup(path):
 
 
 def safe_filename(name, fallback="clip", ext="mp3"):
-    """Turn an episode title into a safe download filename, keeping spaces."""
-    name = re.sub(r"[^\w\s.-]", "", str(name or ""))   # drop illegal chars
-    name = re.sub(r"\s+", " ", name).strip()            # collapse whitespace, keep spaces
-    name = name[:120].strip(" .-_") or fallback
+    """
+    Turn an episode title into a download filename that stays as close to the
+    original as the filesystem allows. Spaces and legal punctuation (apostrophes,
+    #, commas, &, !, parentheses, ...) are preserved. Only characters Windows
+    forbids are handled: ':' becomes ' - ', slashes/pipe become '-', and
+    < > " ? * are dropped (Windows can't save a file containing them).
+    """
+    name = str(name or "")
+    name = name.replace("/", "-").replace("\\", "-").replace("|", "-")
+    name = name.replace(":", " - ")
+    name = re.sub(r'[<>"?*\x00-\x1f]', "", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    name = name[:150].strip(" .-_") or fallback
     return f"{name}.{ext}"

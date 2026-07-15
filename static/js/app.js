@@ -143,9 +143,18 @@ const App = (() => {
     return "mp3";
   }
 
-  // Strip characters that are awkward in file names; keep spaces and dashes.
+  // Keep the title as close to the original as filesystems allow: preserve
+  // spaces and legal punctuation (apostrophes, #, commas, &, ...); only handle
+  // the characters Windows forbids ( : / \ | < > " ? * ).
   function cleanName(s) {
-    return String(s || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "").replace(/\s+/g, " ").trim();
+    return String(s || "")
+      .replace(/[/\\|]/g, "-")
+      .replace(/:/g, " - ")
+      .replace(/[<>"?*\x00-\x1f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\.+$/, "")
+      .trim();
   }
 
   function episodeFileName(ep, total) {

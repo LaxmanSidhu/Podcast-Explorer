@@ -43,7 +43,18 @@ import concurrent.futures
 
 import requests
 
-UA = {"User-Agent": "Mozilla/5.0 (compatible; PodcastExplorer/1.0)"}
+# Identify as an ordinary browser (see the note in app.py): podcast hosts stitch
+# ads per request and give bot-like clients from datacenter IPs the heaviest ad
+# load, which is why a server-side download could come back longer than the
+# episode a listener hears.
+UA = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 # --- per-file / per-job limits -------------------------------------------------
 MAX_FILES = 200                     # files per zip

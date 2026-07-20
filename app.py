@@ -49,7 +49,19 @@ def _require_password():
 MAX_PODCASTS = 100          # safety cap on how many URLs we process at once
 LOOKUP_WORKERS = 10         # parallelism for the iTunes Lookup API
 STREAM_CHUNK = 64 * 1024
-DOWNLOAD_UA = {"User-Agent": "Mozilla/5.0 (compatible; PodcastExplorer/1.0)"}
+# Podcast hosts assemble audio per request and decide how many ads to stitch in
+# based on who is asking. A bot-like User-Agent from a datacenter IP tends to get
+# the heaviest ad load, so we identify as an ordinary browser and send the same
+# Accept headers a browser's <audio> element sends. This keeps server-side
+# downloads consistent with what a listener actually gets.
+DOWNLOAD_UA = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 # --------------------------------------------------------------------------- #

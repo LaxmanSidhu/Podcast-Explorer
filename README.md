@@ -133,6 +133,28 @@ Notes for hosting:
 - Railway containers have **no persistent disk**, which is fine here: clips and
   bulk-download zips are written to temp files and deleted after each request.
 
+## Ad removal (original audio only)
+
+Many hosts (Acast, Megaphone, ART19, Libsyn) assemble the MP3 at request time and
+stitch pre/mid/post-roll ads into it, so a download can run several minutes longer
+than the episode. The RSS feed still declares the *original* runtime, which the app
+uses as a reference:
+
+1. Download once, then probe the duration (a single ffprobe, ~50 ms). If it matches
+   the feed's runtime the file is already clean and is passed straight through.
+   **Podcasts that do not insert ads take this path and pay no extra cost.**
+2. Only when the file is too long: fetch the episode a second time under a different
+   client identity. Ad servers rotate creatives, so the two captures share the
+   episode but differ in the ad slots. The app aligns them and keeps only the audio
+   present in both - the original episode, with inserted segments removed.
+3. The result is verified against the feed runtime before being returned.
+
+This applies to both the single "Full" download and bulk zips. If anything fails the
+original file is returned rather than erroring. Set `REMOVE_ADS=0` to disable and
+keep files exactly as the host served them.
+
+Requires FFmpeg (already installed by the Dockerfile).
+
 ## Multiple users / concurrency
 
 The app is safe for a shared team link. Browsing, RSS, single downloads and

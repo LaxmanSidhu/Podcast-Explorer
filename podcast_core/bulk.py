@@ -43,10 +43,22 @@ import concurrent.futures
 
 import requests
 
-# Identify as an ordinary browser (see the note in app.py): podcast hosts stitch
-# ads per request and give bot-like clients from datacenter IPs the heaviest ad
-# load, which is why a server-side download could come back longer than the
-# episode a listener hears.
+from . import clean
+
+# Second identity used only for the comparison fetch when ads are detected;
+# a different client identity makes the ad server rotate in other creatives,
+# which is what lets us separate the ads from the episode (see clean.py).
+ALT_UA = {
+    "User-Agent": "AppleCoreMedia/1.0.0.21G93 (iPhone; U; CPU OS 17_6 like Mac OS X)",
+    "Accept": "*/*",
+}
+
+# Strip dynamically inserted ads from bulk downloads (REMOVE_ADS=0 disables).
+REMOVE_ADS = os.environ.get("REMOVE_ADS", "1").strip() not in ("0", "false", "no")
+
+# Identify as an ordinary browser: hosts stitch ads per request, and a browser
+# identity tends to receive the unmonetised file, which keeps the common case
+# fast (no second fetch needed).
 UA = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -248,20 +260,37 @@ def _dedupe_name(arc, used):
 # --------------------------------------------------------------------------- #
 # Worker
 # --------------------------------------------------------------------------- #
+def _fetch(url, dest, headers):
+    with requests.get(url, headers=headers, stream=True, timeout=PER_FILE_TIMEOUT) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(64 * 1024):
+                if chunk:
+                    f.write(chunk)
+    return os.path.getsize(dest)
+
+
 def _download_one(item):
     url = item["url"]
     path = item["path"]
+    expected = item.get("duration") or 0
     fd, tmp_path = tempfile.mkstemp(suffix=".part")
     os.close(fd)
-    size = 0
     try:
-        with requests.get(url, headers=UA, stream=True, timeout=PER_FILE_TIMEOUT) as r:
-            r.raise_for_status()
-            with open(tmp_path, "wb") as f:
-                for chunk in r.iter_content(64 * 1024):
-                    if chunk:
-                        f.write(chunk)
-                        size += len(chunk)
+        size = _fetch(url, tmp_path, UA)
+
+        # Strip dynamically inserted ads so the zip holds the original episode
+        # only. Episodes whose runtime already matches the feed cost a single
+        # ffprobe and are left untouched.
+        if REMOVE_ADS and expected:
+            try:
+                def _refetch(dest):
+                    _fetch(url, dest, ALT_UA)
+                tmp_path, _info = clean.clean_file(tmp_path, float(expected), _refetch)
+                size = os.path.getsize(tmp_path)
+            except Exception:  # noqa: BLE001 - never fail the download itself
+                pass
+
         return {"ok": True, "path": path, "tmp": tmp_path, "size": size}
     except Exception as exc:  # noqa: BLE001 - report per-file failures, don't crash the job
         try:

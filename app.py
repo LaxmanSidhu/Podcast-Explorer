@@ -12,6 +12,7 @@ Then open http://127.0.0.1:5000
 """
 
 import os
+import tempfile
 import concurrent.futures
 from urllib.parse import urlparse, quote
 
@@ -21,7 +22,7 @@ from flask import (
     send_file, after_this_request, abort,
 )
 
-from podcast_core import apple, rss, audio, inputs, bulk
+from podcast_core import apple, rss, audio, inputs, bulk, clean
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB upload cap
@@ -74,6 +75,38 @@ def _is_http_url(url):
         return parsed.scheme in ("http", "https") and bool(parsed.netloc)
     except ValueError:
         return False
+
+
+# A second identity used only when we need to re-fetch an episode to compare
+# captures. Ad servers rotate creatives per request, so a different client
+# identity reliably yields a different ad fill (which is what lets us tell the
+# ads apart from the episode).
+ALT_UA = {
+    "User-Agent": "AppleCoreMedia/1.0.0.21G93 (iPhone; U; CPU OS 17_6 like Mac OS X)",
+    "Accept": "*/*",
+}
+
+# Strip dynamically inserted ads so downloads contain only the original episode.
+# Set REMOVE_ADS=0 to keep the file exactly as the host served it.
+REMOVE_ADS = os.environ.get("REMOVE_ADS", "1").strip() not in ("0", "false", "no")
+
+
+def _quiet_remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _fetch_to_file(url, dest, headers):
+    """Download `url` to `dest`. Returns the upstream Content-Type."""
+    with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in r.iter_content(chunk_size=STREAM_CHUNK):
+                if chunk:
+                    f.write(chunk)
+        return r.headers.get("Content-Type", "audio/mpeg")
 
 
 def _content_disposition(filename):
@@ -247,38 +280,73 @@ def api_rss():
 def api_download():
     audio_url = (request.args.get("audio_url") or "").strip()
     title = request.args.get("title") or "episode"
+    try:
+        expected = float(request.args.get("duration") or 0)
+    except ValueError:
+        expected = 0.0
     if not _is_http_url(audio_url):
         abort(400, "Invalid audio URL")
 
+    # Without a runtime from the feed there is nothing to check against, so
+    # stream straight through (fastest path, unchanged behaviour).
+    if not REMOVE_ADS or expected <= 0:
+        try:
+            upstream = requests.get(
+                audio_url, headers=DOWNLOAD_UA, stream=True, timeout=30
+            )
+            upstream.raise_for_status()
+        except requests.RequestException as exc:
+            abort(502, f"Could not fetch audio: {exc}")
+
+        content_type = upstream.headers.get("Content-Type", "audio/mpeg")
+        ext = "m4a" if ("mp4" in content_type or "m4a" in content_type) else "mp3"
+        filename = audio.safe_filename(title, fallback="episode", ext=ext)
+
+        def generate():
+            try:
+                for chunk in upstream.iter_content(chunk_size=STREAM_CHUNK):
+                    if chunk:
+                        yield chunk
+            finally:
+                upstream.close()
+
+        headers = {
+            "Content-Disposition": _content_disposition(filename),
+            "Content-Type": content_type,
+        }
+        if upstream.headers.get("Content-Length"):
+            headers["Content-Length"] = upstream.headers["Content-Length"]
+        return Response(generate(), headers=headers)
+
+    # Ad-removal path: buffer to a temp file, verify its runtime against the
+    # feed, and strip any inserted audio before handing it over.
+    fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
+    os.close(fd)
     try:
-        upstream = requests.get(
-            audio_url, headers=DOWNLOAD_UA, stream=True, timeout=30
-        )
-        upstream.raise_for_status()
-    except requests.RequestException as exc:
+        content_type = _fetch_to_file(audio_url, tmp_path, DOWNLOAD_UA)
+    except Exception as exc:  # noqa: BLE001
+        _quiet_remove(tmp_path)
         abort(502, f"Could not fetch audio: {exc}")
 
-    content_type = upstream.headers.get("Content-Type", "audio/mpeg")
-    ext = "mp3"
-    if "mp4" in content_type or "m4a" in content_type:
-        ext = "m4a"
+    def _refetch(dest):
+        _fetch_to_file(audio_url, dest, ALT_UA)
+
+    try:
+        tmp_path, info = clean.clean_file(tmp_path, expected, _refetch)
+        app.logger.info("download ad-check %s: %s", title[:40], info.get("note"))
+    except Exception as exc:  # noqa: BLE001 - never fail the download itself
+        app.logger.warning("ad removal skipped: %s", exc)
+
+    ext = "m4a" if ("mp4" in content_type or "m4a" in content_type) else "mp3"
     filename = audio.safe_filename(title, fallback="episode", ext=ext)
+    response = send_file(tmp_path, mimetype=content_type or "audio/mpeg",
+                         as_attachment=True, download_name=filename)
 
-    def generate():
-        try:
-            for chunk in upstream.iter_content(chunk_size=STREAM_CHUNK):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
+    @response.call_on_close
+    def _cleanup():
+        _quiet_remove(tmp_path)
 
-    headers = {
-        "Content-Disposition": _content_disposition(filename),
-        "Content-Type": content_type,
-    }
-    if upstream.headers.get("Content-Length"):
-        headers["Content-Length"] = upstream.headers["Content-Length"]
-    return Response(generate(), headers=headers)
+    return response
 
 
 # --------------------------------------------------------------------------- #
@@ -358,8 +426,12 @@ def api_bulk_start():
     for it in raw_items:
         url = (it.get("url") or "").strip()
         path = (it.get("path") or "").strip()
+        try:
+            dur = float(it.get("duration") or 0)
+        except (TypeError, ValueError):
+            dur = 0.0
         if _is_http_url(url) and path:
-            items.append({"url": url, "path": path})
+            items.append({"url": url, "path": path, "duration": dur})
 
     if not items:
         return jsonify({"error": "No valid audio files to download."}), 400

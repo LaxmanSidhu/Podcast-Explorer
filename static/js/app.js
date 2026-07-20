@@ -459,12 +459,13 @@ const App = (() => {
     if (ep.audio_url) {
       const t = encodeURIComponent(ep.title || "episode");
       const a = encodeURIComponent(ep.audio_url);
+      const dur = ep.duration_seconds ? "&duration=" + encodeURIComponent(ep.duration_seconds) : "";
       actions =
         '<div class="ep-actions">' +
           '<button class="btn btn-soft btn-sm" onclick="App.openClip(' + JSON.stringify(ep.index) + ')">' +
             ICON.scissors + " Clip</button>" +
           '<a class="btn btn-ghost btn-sm" href="/api/download?audio_url=' + a + "&title=" + t +
-            '" onclick="App.notifyDownload()">' + ICON.download + " Full</a>" +
+            dur + '" onclick="App.notifyDownload()">' + ICON.download + " Full</a>" +
         "</div>";
     } else {
       actions = '<span class="noaudio">&mdash;</span>';
@@ -782,7 +783,9 @@ const App = (() => {
       toast("Max " + BULK_MAX + " files per download (you selected " + chosen.length + ").", "err");
       return;
     }
-    const items = chosen.map((e) => ({ url: e.audio_url, path: episodeFileName(e, total) }));
+    const items = chosen.map((e) => ({
+      url: e.audio_url, path: episodeFileName(e, total), duration: e.duration_seconds || 0,
+    }));
     const podName =
       cleanName((currentFeed.feed && currentFeed.feed.title) ||
         (currentFeed._card && currentFeed._card.podcast_name) || "podcast") || "podcast";
@@ -823,7 +826,10 @@ const App = (() => {
       while (usedFolders.has(unique.toLowerCase())) unique = folder + " (" + (k++) + ")";
       usedFolders.add(unique.toLowerCase());
       eps.forEach((e) => {
-        if (e.audio_url) items.push({ url: e.audio_url, path: unique + "/" + episodeFileName(e, total) });
+        if (e.audio_url) items.push({
+          url: e.audio_url, path: unique + "/" + episodeFileName(e, total),
+          duration: e.duration_seconds || 0,
+        });
       });
     }
 

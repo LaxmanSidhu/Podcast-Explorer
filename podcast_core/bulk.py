@@ -180,7 +180,7 @@ def get_result(jid):
         j = _jobs.get(jid)
         if not j or j["status"] != "ready":
             return None
-        return j["zip_path"], j["zip_name"]
+        return j["zip_path"], j["zip_name"], j.get("mimetype", "application/zip")
 
 
 def discard(jid):
@@ -304,8 +304,27 @@ def _run(jid):
     with _lock:
         job = _jobs.get(jid)
         items = list(job["items"]) if job else None
+        single = bool(job["single"]) if job else False
     if items is None:
         _finish(jid)
+        return
+
+    # ---- single file: no zip, hand back the audio itself --------------------
+    if single:
+        try:
+            res = _download_one(items[0])
+            _update(jid, done=1, current=items[0]["path"])
+            if not res["ok"]:
+                raise BulkError(res.get("error") or "Download failed")
+            name = os.path.basename(_safe_arcname(res["path"]))
+            ext = os.path.splitext(name)[1].lower()
+            mime = "audio/mp4" if ext in (".m4a", ".mp4") else "audio/mpeg"
+            _update(jid, status="ready", zip_path=res["tmp"], zip_name=name,
+                    mimetype=mime, bytes=res["size"])
+        except Exception as exc:  # noqa: BLE001
+            _update(jid, status="error", error=str(exc))
+        finally:
+            _finish(jid)
         return
 
     fd, zip_path = tempfile.mkstemp(suffix=".zip")
@@ -370,7 +389,7 @@ def _run(jid):
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
-def start(items, zip_name="podcasts.zip"):
+def start(items, zip_name="podcasts.zip", single=False):
     _reap()
     if not items:
         raise BulkError("Nothing to download.")
@@ -379,7 +398,8 @@ def start(items, zip_name="podcasts.zip"):
             f"Too many files ({len(items)}). The limit is {MAX_FILES} per "
             "download. Narrow your selection and try again."
         )
-    if not zip_name.lower().endswith(".zip"):
+    single = bool(single) and len(items) == 1
+    if not single and not zip_name.lower().endswith(".zip"):
         zip_name += ".zip"
 
     jid = uuid.uuid4().hex
@@ -388,6 +408,8 @@ def start(items, zip_name="podcasts.zip"):
             "status": "queued",         # queued | running | ready | error
             "position": 0,
             "is_small": len(items) <= SMALL_JOB_FILES,
+            "single": single,
+            "mimetype": "application/zip",
             "items": list(items),
             "done": 0,
             "total": len(items),

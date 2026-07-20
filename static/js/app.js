@@ -457,15 +457,12 @@ const App = (() => {
 
     let actions = "";
     if (ep.audio_url) {
-      const t = encodeURIComponent(ep.title || "episode");
-      const a = encodeURIComponent(ep.audio_url);
-      const dur = ep.duration_seconds ? "&duration=" + encodeURIComponent(ep.duration_seconds) : "";
       actions =
         '<div class="ep-actions">' +
           '<button class="btn btn-soft btn-sm" onclick="App.openClip(' + JSON.stringify(ep.index) + ')">' +
             ICON.scissors + " Clip</button>" +
-          '<a class="btn btn-ghost btn-sm" href="/api/download?audio_url=' + a + "&title=" + t +
-            dur + '" onclick="App.notifyDownload()">' + ICON.download + " Full</a>" +
+          '<button class="btn btn-ghost btn-sm" onclick="App.downloadOne(' + JSON.stringify(ep.index) + ')">' +
+            ICON.download + " Full</button>" +
         "</div>";
     } else {
       actions = '<span class="noaudio">&mdash;</span>';
@@ -774,6 +771,21 @@ const App = (() => {
     document.body.style.overflow = "";
   }
 
+  // Single episode: runs through the same job/progress pipeline as bulk so the
+  // user sees progress while the server fetches (and, if the host inserted ads,
+  // strips them) instead of staring at a link that appears to hang.
+  async function downloadOne(index) {
+    const ep = currentEpisodes.find((e) => e.index === index);
+    if (!ep || !ep.audio_url) { toast("No audio for this episode", "err"); return; }
+    const total = currentEpisodes.length;
+    const item = {
+      url: ep.audio_url,
+      path: episodeFileName(ep, total),
+      duration: ep.duration_seconds || 0,
+    };
+    await runBulk([item], item.path, "Downloading episode", false, true);
+  }
+
   async function downloadEps() {
     if (!currentFeed) return;
     const total = currentEpisodes.length;
@@ -848,7 +860,7 @@ const App = (() => {
     await runBulk(items, zipName, "Downloading " + items.length + " files", true);
   }
 
-  async function runBulk(items, zipName, phaseLabel, alreadyOpen) {
+  async function runBulk(items, zipName, phaseLabel, alreadyOpen, single) {
     if (!alreadyOpen) showProgress("Preparing your download");
     setPhase(phaseLabel || "Starting\u2026");
     setBar(0, 0);
@@ -857,7 +869,7 @@ const App = (() => {
     try {
       const res = await fetch("/api/bulk/start", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items, zip_name: zipName }),
+        body: JSON.stringify({ items, zip_name: zipName, single: !!single }),
       });
       start = await res.json();
       if (!res.ok) throw new Error(start.error || "Could not start the download");
@@ -972,7 +984,7 @@ const App = (() => {
     toggleDesc, filterEpisodes, copyRss, viewRss, downloadRss, notifyDownload,
     openClip, closeClip, pickPreset, onRangeInput, downloadClip,
     togglePod, selectAllPods, downloadPods,
-    toggleEp, selectAllEps, selectFirst, downloadEps, cancelBulk,
+    toggleEp, selectAllEps, selectFirst, downloadEps, downloadOne, cancelBulk,
   };
 })();
 

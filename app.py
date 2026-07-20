@@ -437,7 +437,8 @@ def api_bulk_start():
         return jsonify({"error": "No valid audio files to download."}), 400
 
     try:
-        job_id = bulk.start(items, zip_name=zip_name)
+        job_id = bulk.start(items, zip_name=zip_name,
+                            single=bool(data.get("single")))
     except bulk.BulkError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -460,10 +461,10 @@ def api_bulk_result():
     if not result:
         return jsonify({"error": "This download is not ready yet."}), 409
 
-    zip_path, zip_name = result
+    zip_path, zip_name, mimetype = result
     response = send_file(
         zip_path,
-        mimetype="application/zip",
+        mimetype=mimetype,
         as_attachment=True,
         download_name=zip_name,
     )
